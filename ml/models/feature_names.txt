@@ -1,0 +1,17 @@
+sma_20
+sma_50
+sma_ratio
+rsi_14
+macd
+macd_signal
+bb_upper
+bb_lower
+bb_width
+atr_14
+volume_sma
+volume_ratio
+price_change_1d
+price_change_5d
+price_vs_sma20
+hl_ratio
+close_position
