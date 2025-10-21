@@ -10,7 +10,7 @@ class PortfolioManager:
         self.max_portfolio_value = max_portfolio_value
         self.max_position_size = max_position_size  # Maximum size of any single position (20% default)
         self.positions = {}
-        # pending_signals: list of tuples (symbol, signal_strength, price, qty, timestamp)
+        # pending_signals: list of tuples (symbol, signal_strength, price, qty, source, timestamp)
         self.pending_signals = []
         
     def refresh_account_info(self) -> Tuple[float, float]:
@@ -48,7 +48,7 @@ class PortfolioManager:
             
         return True
     
-    def add_trade_signal(self, symbol: str, signal_strength: float, price: float, qty: int):
+    def add_trade_signal(self, symbol: str, signal_strength: float, price: float, qty: int, source: str = "SMA"):
         """Add a trade signal to be prioritized. Stores a timestamp for stable sorting.
 
         Signals are stored as (symbol, strength, price, qty, timestamp).
@@ -66,11 +66,16 @@ class PortfolioManager:
         print(f"- Current Buying Power: ${buying_power:,.2f}")
         print(f"- Max Position Size: ${(portfolio_value * self.max_position_size):,.2f}")
 
-        # Append with timestamp
-        self.pending_signals.append((symbol, strength, price, qty, ts))
+        # Append with timestamp and source
+        self.pending_signals.append((symbol, strength, price, qty, source, ts))
 
-        # Stable sort: primary by strength desc, secondary by notional desc, tertiary by timestamp asc
-        self.pending_signals.sort(key=lambda x: (x[1], abs(x[2] * x[3]), -x[4]), reverse=True)
+        # Stable sort: prioritize ML signals, then strength desc, notional desc, older first
+        def sort_key(item):
+            s_sym, s_strength, s_price, s_qty, s_source, s_ts = item
+            source_priority = 1 if s_source.upper().startswith('ML') else 0
+            return (source_priority, s_strength, abs(s_price * s_qty), -s_ts)
+
+        self.pending_signals.sort(key=sort_key, reverse=True)
 
         print(f"- Signal added to queue (Position {len(self.pending_signals)} in line)")
     
@@ -111,33 +116,67 @@ class PortfolioManager:
         # Print queue snapshot
         print("\nSignal queue (priority ->):")
         for idx, item in enumerate(self.pending_signals, 1):
-            s_sym, s_strength, s_price, s_qty, s_ts = item
-            print(f" {idx}. {s_sym} | strength={s_strength:.3f} | value=${abs(s_price * s_qty):,.2f}")
-
-        for i, (symbol, strength, price, qty, ts) in enumerate(self.pending_signals, 1):
+            s_sym, s_strength, s_price, s_qty, s_source, s_ts = item
+            print(f" {idx}. {s_sym} | src={s_source} | strength={s_strength:.3f} | value=${abs(s_price * s_qty):,.2f}")
+        for i, (symbol, strength, price, qty, source, ts) in enumerate(self.pending_signals, 1):
             proposed_value = abs(price * qty)
             print(f"\nProcessing Signal #{i} - {symbol}:")
-            print(f"- Signal Strength: {strength:.3f}")
+            print(f"- Signal Strength: {strength:.3f} (source={source})")
             print(f"- Required Capital: ${proposed_value:,.2f}")
             
             if self.can_take_trade(symbol, proposed_value):
                 print(f"✓ Trade approved for {symbol}")
                 yield (symbol, qty, price)
             else:
-                print(f"Insufficient capital for {symbol}")
-                # Try to free up capital by closing weakest position
-                weak_pos = self.get_position_to_close()
-                if weak_pos and self.positions[weak_pos]['market_value'] >= proposed_value:
-                    print(f"- Closing weak position in {weak_pos} to free up capital")
-                    yield (weak_pos, 0, None)  # Signal to close position
-                    # Then try the new trade
-                    if self.can_take_trade(symbol, proposed_value):
-                        print(f"✓ Trade now possible for {symbol} after freeing capital")
-                        yield (symbol, qty, price)
-                    else:
-                        print(f"✗ Still insufficient capital for {symbol} after freeing position")
+                print(f"⚠ Insufficient capital for {symbol}")
+                # If this is an SMA-based (lower priority) signal, skip it instead of trying to close
+                if source.upper().startswith('SMA'):
+                    print(f"- Skipping SMA signal for {symbol} due to insufficient buying power")
+                    continue
+
+                # For ML signals: try to free capital by closing one or more weakest positions
+                buying_power, portfolio_value = self.refresh_account_info()
+                needed = max(0.0, proposed_value - buying_power)
+                print(f"- Need to free approximately ${needed:,.2f} to take this trade")
+
+                # Build list of candidate positions (symbol, weakness, market_value)
+                candidates = []
+                for pos_sym, pos in self.positions.items():
+                    pos_signal = abs(self.get_current_signal(pos_sym))
+                    pos_value = float(pos.get('market_value', 0.0))
+                    candidates.append((pos_sym, pos_signal, pos_value))
+
+                # Sort candidates by weakness (low signal first) and larger market_value first to free more capital
+                candidates.sort(key=lambda x: (x[1], -x[2]))
+
+                freed = 0.0
+                to_close = []
+                for pos_sym, pos_signal, pos_value in candidates:
+                    if freed >= needed:
+                        break
+                    # Don't close the same symbol we're trying to open
+                    if pos_sym == symbol:
+                        continue
+                    to_close.append(pos_sym)
+                    freed += pos_value
+
+                if not to_close:
+                    print(f" Could not free up enough capital for {symbol} (no suitable positions to close)")
+                    continue
+
+                print(f"- Will attempt to close positions to free ${freed:,.2f}: {to_close}")
+                # Yield closures for each candidate
+                for close_sym in to_close:
+                    print(f"- Scheduling close of {close_sym} to free capital")
+                    yield (close_sym, 0, None)
+
+                # After yielding closures, attempt the trade again (when generator resumes, account may have updated)
+                buying_power_after, _ = self.refresh_account_info()
+                if self.can_take_trade(symbol, proposed_value):
+                    print(f" Trade now possible for {symbol} after freeing capital")
+                    yield (symbol, qty, price)
                 else:
-                    print(f"✗ Could not free up enough capital for {symbol}")
+                    print(f" Still insufficient capital for {symbol} after freeing positions (freed=${freed:,.2f})")
         
         print("\n=== Signal Processing Complete ===")
         # Clear pending signals
@@ -146,8 +185,13 @@ class PortfolioManager:
     def get_queue_snapshot(self) -> List[Tuple]:
         """Return the current pending queue as a list of tuples in priority order."""
         # Ensure sorted
-        self.pending_signals.sort(key=lambda x: (x[1], abs(x[2] * x[3]), -x[4]), reverse=True)
-        return [(s, strength, price, qty, ts) for (s, strength, price, qty, ts) in self.pending_signals]
+        def sort_key(item):
+            s_sym, s_strength, s_price, s_qty, s_source, s_ts = item
+            source_priority = 1 if s_source.upper().startswith('ML') else 0
+            return (source_priority, s_strength, abs(s_price * s_qty), -s_ts)
+
+        self.pending_signals.sort(key=sort_key, reverse=True)
+        return [(s, strength, price, qty, source, ts) for (s, strength, price, qty, source, ts) in self.pending_signals]
     
     def get_current_signal(self, symbol: str) -> float:
         """Get current signal strength for a symbol"""
