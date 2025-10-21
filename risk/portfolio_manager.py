@@ -124,7 +124,7 @@ class PortfolioManager:
                 print(f"✓ Trade approved for {symbol}")
                 yield (symbol, qty, price)
             else:
-                print(f"⚠ Insufficient capital for {symbol}")
+                print(f"Insufficient capital for {symbol}")
                 # Try to free up capital by closing weakest position
                 weak_pos = self.get_position_to_close()
                 if weak_pos and self.positions[weak_pos]['market_value'] >= proposed_value:
@@ -142,6 +142,12 @@ class PortfolioManager:
         print("\n=== Signal Processing Complete ===")
         # Clear pending signals
         self.pending_signals = []
+
+    def get_queue_snapshot(self) -> List[Tuple]:
+        """Return the current pending queue as a list of tuples in priority order."""
+        # Ensure sorted
+        self.pending_signals.sort(key=lambda x: (x[1], abs(x[2] * x[3]), -x[4]), reverse=True)
+        return [(s, strength, price, qty, ts) for (s, strength, price, qty, ts) in self.pending_signals]
     
     def get_current_signal(self, symbol: str) -> float:
         """Get current signal strength for a symbol"""

@@ -204,6 +204,13 @@ def run_strategy():
     executed_trades = 0
     skipped_trades = 0
     
+    # Print queue snapshot for clarity
+    snapshot = portfolio_manager.get_queue_snapshot()
+    if snapshot:
+        print("\nPriority Queue Snapshot:")
+        for idx, (s, strength, price, qty, ts) in enumerate(snapshot, 1):
+            print(f" {idx}. {s} | strength={strength:.3f} | value=${abs(price * qty):,.2f} | qty={qty}")
+    
     for symbol, qty, price in portfolio_manager.process_pending_signals():
         try:
             if qty == 0:
