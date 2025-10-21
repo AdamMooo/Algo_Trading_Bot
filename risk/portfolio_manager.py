@@ -1,6 +1,7 @@
 from typing import Dict, List, Tuple
 from alpaca.trading.client import TradingClient
 import numpy as np
+from datetime import datetime
 
 class PortfolioManager:
     def __init__(self, trading_client: TradingClient, max_portfolio_value: float = 100000,
@@ -9,7 +10,8 @@ class PortfolioManager:
         self.max_portfolio_value = max_portfolio_value
         self.max_position_size = max_position_size  # Maximum size of any single position (20% default)
         self.positions = {}
-        self.pending_signals = []  # List of (symbol, signal_strength, price, qty) tuples
+        # pending_signals: list of tuples (symbol, signal_strength, price, qty, timestamp)
+        self.pending_signals = []
         
     def refresh_account_info(self) -> Tuple[float, float]:
         """Get current buying power and portfolio value"""
@@ -47,20 +49,29 @@ class PortfolioManager:
         return True
     
     def add_trade_signal(self, symbol: str, signal_strength: float, price: float, qty: int):
-        """Add a trade signal to be prioritized"""
+        """Add a trade signal to be prioritized. Stores a timestamp for stable sorting.
+
+        Signals are stored as (symbol, strength, price, qty, timestamp).
+        Sorting priority: strength (desc), notional size (desc), timestamp (asc).
+        """
         proposed_value = abs(qty * price)
+        strength = float(signal_strength)
+        ts = datetime.now().timestamp()
+
         print(f"\nAnalyzing signal for {symbol}:")
-        print(f"- Signal Strength: {signal_strength:.3f}")
+        print(f"- Signal Strength: {strength:.3f}")
         print(f"- Proposed Value: ${proposed_value:,.2f}")
-        
+
         buying_power, portfolio_value = self.refresh_account_info()
         print(f"- Current Buying Power: ${buying_power:,.2f}")
         print(f"- Max Position Size: ${(portfolio_value * self.max_position_size):,.2f}")
-        
-        self.pending_signals.append((symbol, abs(signal_strength), price, qty))
-        # Sort by signal strength (strongest first)
-        self.pending_signals.sort(key=lambda x: x[1], reverse=True)
-        
+
+        # Append with timestamp
+        self.pending_signals.append((symbol, strength, price, qty, ts))
+
+        # Stable sort: primary by strength desc, secondary by notional desc, tertiary by timestamp asc
+        self.pending_signals.sort(key=lambda x: (x[1], abs(x[2] * x[3]), -x[4]), reverse=True)
+
         print(f"- Signal added to queue (Position {len(self.pending_signals)} in line)")
     
     def get_position_to_close(self) -> str:
@@ -94,7 +105,16 @@ class PortfolioManager:
         print(f"Current Buying Power: ${buying_power:,.2f}")
         print(f"Portfolio Value: ${portfolio_value:,.2f}")
         
-        for i, (symbol, strength, price, qty) in enumerate(self.pending_signals, 1):
+        # Ensure queue is sorted by priority right before processing (in case external changes occurred)
+        self.pending_signals.sort(key=lambda x: (x[1], abs(x[2] * x[3]), -x[4]), reverse=True)
+
+        # Print queue snapshot
+        print("\nSignal queue (priority ->):")
+        for idx, item in enumerate(self.pending_signals, 1):
+            s_sym, s_strength, s_price, s_qty, s_ts = item
+            print(f" {idx}. {s_sym} | strength={s_strength:.3f} | value=${abs(s_price * s_qty):,.2f}")
+
+        for i, (symbol, strength, price, qty, ts) in enumerate(self.pending_signals, 1):
             proposed_value = abs(price * qty)
             print(f"\nProcessing Signal #{i} - {symbol}:")
             print(f"- Signal Strength: {strength:.3f}")

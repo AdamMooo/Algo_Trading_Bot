@@ -6,7 +6,8 @@ from risk.position_sizing import calculate_qty
 from risk.portfolio_manager import PortfolioManager
 from strategy.simple_sma import simple_sma_strategy
 from monitor.trade_monitor import TradeMonitor
-from monitor.news_monitor import NewsMonitor
+# NewsMonitor removed for performance - to re-enable import, uncomment below
+# from monitor.news_monitor import NewsMonitor
 from ml.ml_trader import MLTrader
 from datetime import datetime, timedelta, time
 import time as t_module
@@ -59,7 +60,7 @@ def is_crypto_symbol(symbol):
 # Initialize trading clients and monitors
 trading_client = TradingClient(API_KEY, API_SECRET, paper=True)
 trade_monitor = TradeMonitor()
-news_monitor = NewsMonitor()
+# news_monitor = NewsMonitor()  # Disabled
 portfolio_manager = PortfolioManager(trading_client, max_portfolio_value=100000, max_position_size=0.2)
 ml_trader = MLTrader()
 
@@ -313,13 +314,9 @@ def run_strategy():
         bars['return'] = bars['close'].pct_change()
         vol = bars['return'].std()
 
-        # Check news sentiment
-        news_monitor.print_latest_news(symbol)
-        should_skip, pos_factor = news_monitor.should_skip_trade(symbol, final_signal)
-        if should_skip:
-            print(f"  {symbol}: Skipping due to news sentiment")
-            continue
-            
+        # News monitor disabled to improve performance
+        # should_skip, pos_factor = False, 1.0
+        pos_factor = 1.0
         print(f"  {symbol}: SMA={sma_signal}, ML={ml_signal} ({ml_confidence:.0%}), Using={signal_source}")
             
         # Get existing position
