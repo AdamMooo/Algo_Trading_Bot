@@ -3,6 +3,7 @@ from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from execution.paper_trader import execute_trade, execute_trade_and_wait_for_fill
 from risk.position_sizing import calculate_qty
+from risk.portfolio_manager import PortfolioManager
 from strategy.simple_sma import simple_sma_strategy
 from monitor.trade_monitor import TradeMonitor
 from monitor.news_monitor import NewsMonitor
@@ -55,9 +56,11 @@ def is_crypto_symbol(symbol):
     """Check if symbol is a crypto pair"""
     return '/' in symbol  # Crypto pairs have format: BTC/USD, ETH/USD, etc.
 
-# Initialize monitors
+# Initialize trading clients and monitors
+trading_client = TradingClient(API_KEY, API_SECRET, paper=True)
 trade_monitor = TradeMonitor()
 news_monitor = NewsMonitor()
+portfolio_manager = PortfolioManager(trading_client, max_portfolio_value=100000, max_position_size=0.2)
 ml_trader = MLTrader()
 
 # Dynamic symbol selection based on market hours
@@ -131,9 +134,10 @@ def run_strategy():
         print("Market closed - waiting...")
         return
 
-    # Always get latest positions from Alpaca
-    positions = fetch_positions()
-    portfolio_value = get_portfolio_value()
+    # Refresh portfolio manager state
+    portfolio_manager.update_positions()
+    buying_power, portfolio_value = portfolio_manager.refresh_account_info()
+    positions = portfolio_manager.positions  # Use portfolio manager's position tracking
     
     if positions:
         print(f"\nOpen Positions ({len(positions)}):")
@@ -193,6 +197,50 @@ def run_strategy():
     stats = trade_monitor.get_trade_stats()
     if stats:
         print(f"Stats: {stats['total_trades']} trades, {stats['win_rate']:.1%} win rate, ${stats['total_pnl']:.0f} PnL")
+    
+    # Process all pending trade signals in priority order
+    print("\n=== EXECUTING PRIORITIZED TRADES ===")
+    executed_trades = 0
+    skipped_trades = 0
+    
+    for symbol, qty, price in portfolio_manager.process_pending_signals():
+        try:
+            if qty == 0:
+                # Close position
+                print(f"\n🔄 CLOSING POSITION - {symbol}")
+                print(f"- Action: Close position to free up capital")
+                print(f"- Size: {abs(positions[symbol]['qty'])} shares")
+                result = execute_trade(symbol, 0, qty=abs(positions[symbol]['qty']), latest_price=price)
+                if result:
+                    executed_trades += 1
+                    print("✓ Position closed successfully")
+                else:
+                    skipped_trades += 1
+                    print("✗ Failed to close position")
+            else:
+                # New position or position adjustment
+                direction = "BUY" if qty > 0 else "SELL"
+                print(f"\n🔄 NEW TRADE - {symbol}")
+                print(f"- Direction: {direction}")
+                print(f"- Size: {abs(qty)} shares")
+                print(f"- Price: ${price:.2f}")
+                print(f"- Value: ${abs(qty * price):.2f}")
+                
+                result = execute_trade(symbol, 1 if qty > 0 else -1, qty=abs(qty), latest_price=price)
+                if result:
+                    executed_trades += 1
+                    print("✓ Trade executed successfully")
+                else:
+                    skipped_trades += 1
+                    print("✗ Trade execution failed")
+        except Exception as e:
+            print(f"Error executing trade for {symbol}: {e}")
+            skipped_trades += 1
+    
+    print("\n=== TRADE EXECUTION SUMMARY ===")
+    print(f"Executed Trades: {executed_trades}")
+    print(f"Skipped/Failed Trades: {skipped_trades}")
+    print("="*30)
 
     for symbol in SECTOR_STOCKS:
         start = now - timedelta(days=4)  # 4-day lookback for balance between noise filtering and responsiveness
@@ -238,12 +286,28 @@ def run_strategy():
         # If ML is confident (>0.55), use ML signal
         # Otherwise, use SMA signal
         # Higher threshold for larger positions = better quality trades
+        # Determine final signal and its strength
         if ml_confidence > 0.55 and ml_signal != 0:
             final_signal = ml_signal
+            signal_strength = ml_confidence
             signal_source = f"ML ({ml_confidence:.2f})"
         else:
             final_signal = sma_signal
+            signal_strength = abs(sma_signal) * 0.5  # Scale SMA signals to be comparable with ML
             signal_source = "SMA"
+        
+        # If we have a signal, add it to portfolio manager
+        if final_signal != 0:
+            # Calculate position size
+            qty = calculate_qty(CASH_PER_TRADE, latest_price)
+            
+            # Add signal to portfolio manager
+            portfolio_manager.add_trade_signal(
+                symbol=symbol,
+                signal_strength=signal_strength,
+                price=latest_price,
+                qty=qty if final_signal > 0 else -qty
+            )
         
         # Calculate volatility
         bars['return'] = bars['close'].pct_change()

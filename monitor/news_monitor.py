@@ -95,7 +95,7 @@ class NewsMonitor:
         
         # News volume analysis
         news_volume = len(news)
-        volume_multiplier = min(news_volume / 10, 2.0)  # Scale up to 2x for high volume
+        volume_multiplier = min(news_volume/1.5, 2.0)  # Cap at 2.0
         
         return {
             'sentiment': 'bullish' if momentum > 0 else 'bearish' if momentum < 0 else 'neutral',

@@ -5,7 +5,7 @@
 
 #
  cd C:\Users\morria72\Desktop\algo_trading_bot
- .\venv\Scripts\activate\
+ .\venv\Scripts\activate
 python main.py
 
 python ml/training_pipeline.py

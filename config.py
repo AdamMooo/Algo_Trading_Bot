@@ -14,7 +14,7 @@ API_KEY = os.getenv("APCA_API_KEY_ID")
 API_SECRET = os.getenv("APCA_API_SECRET_KEY")
 
 # Trading Configuration
-CASH_PER_TRADE = 10000
+CASH_PER_TRADE = 5000
 MAX_PROFIT = 500
 MAX_LOSS = -200
 
