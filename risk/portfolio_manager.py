@@ -110,8 +110,14 @@ class PortfolioManager:
         print(f"Current Buying Power: ${buying_power:,.2f}")
         print(f"Portfolio Value: ${portfolio_value:,.2f}")
         
-        # Ensure queue is sorted by priority right before processing (in case external changes occurred)
-        self.pending_signals.sort(key=lambda x: (x[1], abs(x[2] * x[3]), -x[4]), reverse=True)
+        # Use the same sort key as get_queue_snapshot
+        def sort_key(item):
+            s_sym, s_strength, s_price, s_qty, s_source, s_ts = item
+            source_priority = 1 if s_source.upper().startswith('ML') else 0
+            return (source_priority, s_strength, abs(s_price * s_qty), -float(s_ts))
+
+        # Sort using the correct key function
+        self.pending_signals.sort(key=sort_key, reverse=True)
 
         # Print queue snapshot
         print("\nSignal queue (priority ->):")
