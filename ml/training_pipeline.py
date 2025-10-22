@@ -109,7 +109,7 @@ def main():
             labeled_df = feature_engineer.create_training_labels(
                 features_df, 
                 forward_periods=args.forward_periods,
-                threshold=args.threshold
+                base_threshold=args.threshold
             )
             
             if labeled_df.empty:
@@ -166,9 +166,16 @@ def main():
         stratify=y_all
     )
     
-    # Step 4: Train models
+    # Step 4: Train models with class balancing
     print("Training model...")
-    ml_models.create_models()
+    
+    # Calculate class weights
+    from sklearn.utils.class_weight import compute_class_weight
+    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+    class_weight_dict = dict(zip(np.unique(y_train), class_weights))
+    print(f"\nClass weights to handle imbalance: {class_weight_dict}")
+    
+    ml_models.create_models(class_weight=class_weight_dict)
     
     training_start = time.time()
     results = ml_models.train_models(X_train, y_train, X_test, y_test)
@@ -179,19 +186,19 @@ def main():
         print("Optimizing hyperparameters...")
         from sklearn.ensemble import RandomForestClassifier
         
+        # Simplified parameter grid for faster optimization
         param_grid = {
-            'n_estimators': [100, 200, 300],
-            'max_depth': [10, 20, 30, None],
-            'min_samples_split': [2, 5, 10],
-            'min_samples_leaf': [1, 2, 4],
-            'max_features': ['sqrt', 'log2', None]
+            'n_estimators': [100, 200],
+            'max_depth': [10, 20],
+            'min_samples_split': [2, 5],
+            'max_features': ['sqrt', 'log2']
         }
         
         grid_search = GridSearchCV(
             RandomForestClassifier(random_state=42),
             param_grid,
             cv=3,
-            scoring='accuracy',
+            scoring='precision',  # Focus on precision instead of accuracy
             n_jobs=-1
         )
         
@@ -218,7 +225,6 @@ def main():
         print(f"Test accuracy: {accuracy:.4f}")
     else:
         print("Model not available for evaluation")
-    
     # Feature importance
     importance = ml_models.get_feature_importance('random_forest')
     if importance is not None:

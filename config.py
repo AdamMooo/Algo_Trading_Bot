@@ -19,10 +19,10 @@ MAX_PROFIT = 500
 MAX_LOSS = -200
 
 # ML Configuration
-ML_CONFIDENCE_MULTIPLIER = 1.5
+ML_CONFIDENCE_MULTIPLIER = 1.25
 LEVERAGE_CONFIDENCE_THRESHOLD = 0.70
-LEVERAGE_MULTIPLIER = 2.0
-MAX_LEVERAGE_PER_TRADE = 3.0
+LEVERAGE_MULTIPLIER = 1.5
+MAX_LEVERAGE_PER_TRADE = 1.75
 
 # Market Hours (ET)
 MARKET_OPEN = "09:30"
@@ -90,7 +90,7 @@ CRYPTO_SYMBOLS = [
 ]
 
 # Model Training Configuration
-TRAINING_DAYS = 90 # Use past 90 days of data for training
+TRAINING_DAYS = 75 # Use past 75 days of data for training
 TRAINING_FORWARD_PERIODS = 3 # Predict 3 periods ahead
 TRAINING_THRESHOLD = 0.0015 # 0.15% threshold for labeling
 MODEL_RETRAIN_HOURS = 72 # Retrain model every 72 hours

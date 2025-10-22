@@ -24,9 +24,13 @@ class MLTradingModels:
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
     
-    def create_models(self) -> Dict[str, Any]:
+    def create_models(self, class_weight: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Create a simple Random Forest model.
+        
+        Args:
+            class_weight: Optional dictionary of class weights {class_label: weight}
+                        If None, uses 'balanced' mode
         
         Returns:
             Dictionary with the model
@@ -38,7 +42,7 @@ class MLTradingModels:
             min_samples_leaf=10,   # Need 10 samples in leaf
             random_state=42,
             n_jobs=-1,
-            class_weight='balanced'  # Handle imbalanced data
+            class_weight=class_weight if class_weight is not None else 'balanced'
         )
         
         self.models['random_forest'] = model
@@ -47,7 +51,7 @@ class MLTradingModels:
     def train_models(self, X_train: np.ndarray, y_train: np.ndarray,
                     X_val: np.ndarray = None, y_val: np.ndarray = None) -> Dict:
         """
-        Train the Random Forest model.
+        Train the Random Forest model with probability threshold optimization.
         
         Args:
             X_train: Training features
@@ -69,8 +73,33 @@ class MLTradingModels:
         # Train model
         model.fit(X_train, y_train)
         
-        # Training metrics
-        y_train_pred = model.predict(X_train)
+        # Find optimal probability threshold
+        if X_val is not None and y_val is not None:
+            print("\nOptimizing probability threshold...")
+            y_val_proba = model.predict_proba(X_val)[:, 1]
+            
+            best_threshold = 0.5
+            best_f1 = 0
+            
+            for threshold in np.arange(0.5, 0.95, 0.05):
+                y_val_pred = (y_val_proba >= threshold).astype(int)
+                f1 = f1_score(y_val, y_val_pred)
+                precision = precision_score(y_val, y_val_pred, zero_division=0)
+                
+                print(f"Threshold {threshold:.2f}: F1={f1:.3f}, Precision={precision:.3f}")
+                
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = threshold
+            
+            print(f"\nSelected threshold: {best_threshold:.2f}")
+            self.threshold = best_threshold
+            
+            # Use optimized threshold
+            y_train_pred = (model.predict_proba(X_train)[:, 1] >= best_threshold).astype(int)
+        else:
+            y_train_pred = model.predict(X_train)
+            
         train_accuracy = accuracy_score(y_train, y_train_pred)
         
         print(f"Training Accuracy: {train_accuracy:.3f}")

@@ -134,7 +134,7 @@ class PortfolioManager:
                 print(f"✓ Trade approved for {symbol}")
                 yield (symbol, qty, price)
             else:
-                print(f"⚠ Insufficient capital for {symbol}")
+                print(f"Insufficient capital for {symbol}")
                 # If this is an SMA-based (lower priority) signal, skip it instead of trying to close
                 if source.upper().startswith('SMA'):
                     print(f"- Skipping SMA signal for {symbol} due to insufficient buying power")

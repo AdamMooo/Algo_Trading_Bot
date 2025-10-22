@@ -208,14 +208,14 @@ def run_strategy():
     snapshot = portfolio_manager.get_queue_snapshot()
     if snapshot:
         print("\nPriority Queue Snapshot:")
-        for idx, (s, strength, price, qty, ts) in enumerate(snapshot, 1):
-            print(f" {idx}. {s} | strength={strength:.3f} | value=${abs(price * qty):,.2f} | qty={qty}")
+        for idx, (s, strength, price, qty, source, ts) in enumerate(snapshot, 1):
+            print(f" {idx}. {s} | src={source} | strength={strength:.3f} | value=${abs(price * qty):,.2f} | qty={qty}")
     
     for symbol, qty, price in portfolio_manager.process_pending_signals():
         try:
             if qty == 0:
                 # Close position
-                print(f"\n🔄 CLOSING POSITION - {symbol}")
+                print(f"\nCLOSING POSITION - {symbol}")
                 print(f"- Action: Close position to free up capital")
                 print(f"- Size: {abs(positions[symbol]['qty'])} shares")
                 result = execute_trade(symbol, 0, qty=abs(positions[symbol]['qty']), latest_price=price)
@@ -228,7 +228,7 @@ def run_strategy():
             else:
                 # New position or position adjustment
                 direction = "BUY" if qty > 0 else "SELL"
-                print(f"\n🔄 NEW TRADE - {symbol}")
+                print(f"\nNEW TRADE - {symbol}")
                 print(f"- Direction: {direction}")
                 print(f"- Size: {abs(qty)} shares")
                 print(f"- Price: ${price:.2f}")
@@ -314,7 +314,8 @@ def run_strategy():
                 symbol=symbol,
                 signal_strength=signal_strength,
                 price=latest_price,
-                qty=qty if final_signal > 0 else -qty
+                qty=qty if final_signal > 0 else -qty,
+                source=signal_source
             )
         
         # Calculate volatility
@@ -335,7 +336,7 @@ def run_strategy():
         
         # Position sizing based on signal type and confidence
         if signal_source == "SMA":
-            base_cash = CASH_PER_TRADE * 0.20
+            base_cash = CASH_PER_TRADE * 0.10
         else:
             if ml_confidence >= LEVERAGE_CONFIDENCE_THRESHOLD:  # >70%
                 leverage_applied = min(LEVERAGE_MULTIPLIER, MAX_LEVERAGE_PER_TRADE)
